@@ -39,25 +39,26 @@ const (
 	CWR = 0x80
 )
 
-var TCPOPtions = []byte{
+var TCPOptions = []byte{
 	0x02, 0x04, 0xff, 0xd7, 0x04, 0x02, 0x08, 0x0a,
 	0x9c, 0xb7, 0x7e, 0xe1, 0x00, 0x00, 0x00, 0x00,
 	0x01, 0x03, 0x03, 0x07,
 }
 
 type TCPHeader struct {
-	SourcePort    []byte
-	DestPort      []byte
-	SeqNumber     []byte
-	AckNumber     []byte
-	DataOffset    uint8
-	DTH           uint8
-	Reserved      uint8
-	TCPCtrlFlags  TCPCtrlFlags
-	WindowSize    []byte
-	Checksum      []byte
-	UrgentPointer []byte
-	Options       []byte
+	TCPDummyHeader TCPDummyHeader
+	SourcePort     []byte
+	DestPort       []byte
+	SeqNumber      []byte
+	AckNumber      []byte
+	DataOffset     uint8
+	DTH            uint8
+	Reserved       uint8
+	TCPCtrlFlags   TCPCtrlFlags
+	WindowSize     []byte
+	Checksum       []byte
+	UrgentPointer  []byte
+	Options        []byte
 }
 
 type TCPDummyHeader struct {
@@ -89,7 +90,12 @@ func (ctrlFlags *TCPCtrlFlags) ParseTCPCtrlFlags(packet uint8) {
 	ctrlFlags.FIN = packet & 0x01
 }
 
-func ParseHeader(packet []byte) (tcpHeader TCPHeader) {
+func ParseHeader(packet []byte, clientAddr string, serverAddr string) (tcpHeader TCPHeader) {
+	// SourceのIPアドレスとDestinationのIPアドレスをダミーヘッダにセット
+	tcpHeader.TCPDummyHeader.SourceIP = ipv4ToByte(clientAddr)
+	tcpHeader.TCPDummyHeader.DestIP = ipv4ToByte(serverAddr)
+
+	// TCPヘッダをセット
 	tcpHeader.SourcePort = packet[0:2]
 	tcpHeader.DestPort = packet[2:4]
 	tcpHeader.SeqNumber = packet[4:8]

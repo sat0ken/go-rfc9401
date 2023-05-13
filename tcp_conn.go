@@ -6,47 +6,21 @@ import (
 	"net"
 )
 
-func ListenTCP(localAddr string, port int) error {
-	pconn, err := net.ListenPacket("ip:tcp", localAddr)
+func ListenTCP(serverAddr string, port int) error {
+	pconn, err := net.ListenPacket("ip:tcp", serverAddr)
 	if err != nil {
 		return err
 	}
 	defer pconn.Close()
 	buf := make([]byte, 1500)
 	for {
-		n, addr, err := pconn.ReadFrom(buf)
+		n, clientAddr, err := pconn.ReadFrom(buf)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("client addr is %s\n", addr)
-		tcpheader := ParseHeader(buf[:n])
-		tcpheader.handleConnection(pconn, pconn.LocalAddr(), port)
-	}
-}
-
-func (tcpHeader *TCPHeader) handleConnection(pconn net.PacketConn, addr net.Addr, port int) {
-	switch tcpHeader.TCPCtrlFlags.getState() {
-	case SYN:
-		// Todo: SYNACKを返す
-		fmt.Println("receive SYN packet")
-		tcpHeader.DestPort = tcpHeader.SourcePort
-		// 8080
-		tcpHeader.SourcePort = uint16ToByte(uint16(port))
-		tcpHeader.AckNumber = addAckNumber(tcpHeader.SeqNumber, 1)
-
-		tcpHeader.SeqNumber = []byte{0x00, 0x00, 0x00, 0x00}
-		tcpHeader.TCPCtrlFlags.ACK = 1
-		_, err := pconn.WriteTo(tcpHeader.ToPacket(), addr)
-		if err != nil {
-			log.Fatalf(" Write SYNACK is err : %v\n", err)
-		}
-		fmt.Println("send SYNACK packet")
-	case SYN + ACK:
-		// Todo: ACKを返す
-	case PSH + ACK:
-		// Todo: ACKを返す
-	case FIN + ACK:
-		// Todo: FINACKを返す
+		fmt.Printf("client addr is %s\n", clientAddr)
+		tcpHeader := ParseHeader(buf[:n], clientAddr.String(), serverAddr)
+		handleConnection(pconn, tcpHeader, pconn.LocalAddr(), port)
 	}
 }
 
@@ -70,10 +44,37 @@ func Dial(address string, port int) error {
 		WindowSize:    uint16ToByte(65495),
 		Checksum:      uint16ToByte(0),
 		UrgentPointer: uint16ToByte(0),
-		Options:       TCPOPtions,
+		Options:       TCPOptions,
 	}
 
 	fmt.Printf("%x\n", syn.ToPacket())
 
 	return nil
+}
+
+func handleConnection(pconn net.PacketConn, tcpHeader TCPHeader, client net.Addr, port int) {
+	switch tcpHeader.TCPCtrlFlags.getState() {
+	case SYN:
+		// Todo: SYNACKを返す
+		fmt.Println("receive SYN packet")
+
+		tcpHeader.DestPort = tcpHeader.SourcePort
+		// 8080
+		tcpHeader.SourcePort = uint16ToByte(uint16(port))
+		tcpHeader.AckNumber = addAckNumber(tcpHeader.SeqNumber, 1)
+
+		tcpHeader.SeqNumber = []byte{0x00, 0x00, 0x00, 0x00}
+		tcpHeader.TCPCtrlFlags.ACK = 1
+		_, err := pconn.WriteTo(tcpHeader.ToPacket(), client)
+		if err != nil {
+			log.Fatalf(" Write SYNACK is err : %v\n", err)
+		}
+		fmt.Println("send SYNACK packet")
+	case SYN + ACK:
+		// Todo: ACKを返す
+	case PSH + ACK:
+		// Todo: ACKを返す
+	case FIN + ACK:
+		// Todo: FINACKを返す
+	}
 }

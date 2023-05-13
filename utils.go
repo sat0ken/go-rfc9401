@@ -1,6 +1,11 @@
 package rfc9401
 
-import "encoding/binary"
+import (
+	"bytes"
+	"encoding/binary"
+	"strconv"
+	"strings"
+)
 
 func uint16ToByte(i uint16) []byte {
 	b := make([]byte, 2)
@@ -44,4 +49,14 @@ func addAckNumber(ack []byte, add uint32) []byte {
 	intack := byteToUint32(ack)
 	intack += add
 	return uint32ToByte(intack)
+}
+
+func ipv4ToByte(ipv4 string) []byte {
+	var b bytes.Buffer
+	str := strings.Split(ipv4, ".")
+	for _, v := range str {
+		i, _ := strconv.Atoi(v)
+		b.Write([]byte{byte(i)})
+	}
+	return b.Bytes()
 }
