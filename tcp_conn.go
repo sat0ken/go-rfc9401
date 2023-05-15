@@ -6,33 +6,43 @@ import (
 	"net"
 )
 
-func ListenTCP(serverAddr string, port int) error {
+func ListenPacket(serverAddr string, port int, chHeader chan TCPHeader) error {
 	pconn, err := net.ListenPacket("ip:tcp", serverAddr)
 	if err != nil {
 		return err
 	}
-	defer pconn.Close()
-	buf := make([]byte, 1500)
+
 	for {
+		buf := make([]byte, 1500)
 		n, clientAddr, err := pconn.ReadFrom(buf)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("client addr is %s\n", clientAddr)
 		tcpHeader := ParseHeader(buf[:n], clientAddr.String(), serverAddr)
-		handleConnection(pconn, tcpHeader, pconn.LocalAddr(), port)
+		// 宛先ポートがサーバがListenしているポートであれば
+		if byteToUint16(tcpHeader.DestPort) == uint16(port) {
+			handleConnection(pconn, tcpHeader, pconn.LocalAddr(), port, chHeader)
+		}
 	}
 }
 
-func Dial(address string, port int) error {
-	//// TCPパケットを送る
-	//conn, err := net.Dial("ip:6", address)
-	//if err != nil {
-	//	return err
-	//}
-	// Todo: 3ハンドシェイクの実装
+func Dial(clientAddr string, serverAddr string, port int) error {
+
+	chHeader := make(chan TCPHeader)
+	go func() {
+		ListenPacket(serverAddr, 60120, chHeader)
+	}()
+
+	conn, err := net.Dial("ip:tcp", serverAddr)
+	if err != nil {
+		return err
+	}
 	// SYNパケットを作る
 	syn := TCPHeader{
+		TCPDummyHeader: TCPDummyHeader{
+			SourceIP: ipv4ToByte(clientAddr),
+			DestIP:   ipv4ToByte(serverAddr),
+		},
 		SourcePort:    uint16ToByte(60120),
 		DestPort:      uint16ToByte(uint16(port)),
 		SeqNumber:     uint32ToByte(1275838710),
@@ -47,19 +57,29 @@ func Dial(address string, port int) error {
 		Options:       TCPOptions,
 	}
 
-	fmt.Printf("%x\n", syn.ToPacket())
+	// SYNパケットを送る
+	_, err = conn.Write(syn.ToPacket())
+	if err != nil {
+		return err
+	}
+
+	// SYNACKを受けて送ったACKを受ける
+	ack := <-chHeader
+	fmt.Printf("ACK is %+v\n", ack)
+	//for v := range chHeader {
+	//	fmt.Printf("ACK is %+v\n", v)
+	//}
 
 	return nil
 }
 
-func handleConnection(pconn net.PacketConn, tcpHeader TCPHeader, client net.Addr, port int) {
+func handleConnection(pconn net.PacketConn, tcpHeader TCPHeader, client net.Addr, port int, ch chan TCPHeader) {
 	switch tcpHeader.TCPCtrlFlags.getState() {
 	case SYN:
 		// Todo: SYNACKを返す
 		fmt.Println("receive SYN packet")
 
 		tcpHeader.DestPort = tcpHeader.SourcePort
-		// 8080
 		tcpHeader.SourcePort = uint16ToByte(uint16(port))
 		tcpHeader.AckNumber = addAckNumber(tcpHeader.SeqNumber, 1)
 
@@ -72,6 +92,21 @@ func handleConnection(pconn net.PacketConn, tcpHeader TCPHeader, client net.Addr
 		fmt.Println("send SYNACK packet")
 	case SYN + ACK:
 		// Todo: ACKを返す
+		tcpHeader.DestPort = tcpHeader.SourcePort
+		tcpHeader.SourcePort = uint16ToByte(uint16(port))
+		// ACKをいったん保存
+		tmpack := tcpHeader.AckNumber
+		// ACKに
+		tcpHeader.AckNumber = addAckNumber(tcpHeader.SeqNumber, 1)
+		tcpHeader.SeqNumber = tmpack
+
+		tcpHeader.TCPCtrlFlags.SYN = 0
+		_, err := pconn.WriteTo(tcpHeader.ToPacket(), client)
+		if err != nil {
+			log.Fatalf(" Write SYNACK is err : %v\n", err)
+		}
+		// ACKまできたのでchannelで一度返す
+		ch <- tcpHeader
 	case PSH + ACK:
 		// Todo: ACKを返す
 	case FIN + ACK:

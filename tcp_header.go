@@ -59,6 +59,7 @@ type TCPHeader struct {
 	Checksum       []byte
 	UrgentPointer  []byte
 	Options        []byte
+	Data           []byte
 }
 
 type TCPDummyHeader struct {
@@ -108,6 +109,12 @@ func ParseHeader(packet []byte, clientAddr string, serverAddr string) (tcpHeader
 	tcpHeader.Checksum = packet[16:18]
 	tcpHeader.UrgentPointer = packet[18:20]
 	tcpHeader.Options = packet[20:tcpHeader.DataOffset]
+	// TCPデータがあればセット
+	if int(tcpHeader.DataOffset) < len(packet) {
+		tcpHeader.Data = packet[tcpHeader.DataOffset:]
+	}
+
+	//fmt.Printf("tcp len is %+v\n", tcpHeader)
 
 	return tcpHeader
 }
@@ -182,7 +189,14 @@ func (tcpheader *TCPHeader) ToPacket() (packet []byte) {
 	}
 	packet = b.Bytes()
 	// checksumを計算
-	checksum := calcChecksum(packet)
+	var calc []byte
+	if tcpheader.Data == nil {
+		calc = tcpheader.TCPDummyHeader.ToPacket(40)
+	} else {
+		calc = tcpheader.TCPDummyHeader.ToPacket(len(tcpheader.Data) + 40)
+	}
+	calc = append(calc, packet...)
+	checksum := calcChecksum(calc)
 
 	// 計算したchecksumをセット
 	packet[16] = checksum[0]
