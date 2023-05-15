@@ -19,6 +19,7 @@ func ListenPacket(serverAddr string, port int, chHeader chan TCPHeader) error {
 			return err
 		}
 		tcpHeader := ParseHeader(buf[:n], clientAddr.String(), serverAddr)
+		fmt.Printf("recv tcp is %+v\n", tcpHeader)
 		// 宛先ポートがサーバがListenしているポートであれば
 		if byteToUint16(tcpHeader.DestPort) == uint16(port) {
 			handleConnection(pconn, tcpHeader, pconn.LocalAddr(), port, chHeader)
@@ -26,7 +27,7 @@ func ListenPacket(serverAddr string, port int, chHeader chan TCPHeader) error {
 	}
 }
 
-func Dial(clientAddr string, serverAddr string, port int) error {
+func Dial(clientAddr string, serverAddr string, port int) (TCPHeader, error) {
 
 	chHeader := make(chan TCPHeader)
 	go func() {
@@ -35,7 +36,7 @@ func Dial(clientAddr string, serverAddr string, port int) error {
 
 	conn, err := net.Dial("ip:tcp", serverAddr)
 	if err != nil {
-		return err
+		return TCPHeader{}, err
 	}
 	// SYNパケットを作る
 	syn := TCPHeader{
@@ -60,17 +61,13 @@ func Dial(clientAddr string, serverAddr string, port int) error {
 	// SYNパケットを送る
 	_, err = conn.Write(syn.ToPacket())
 	if err != nil {
-		return err
+		return TCPHeader{}, err
 	}
-
+	fmt.Println("Send SYN Packet")
 	// SYNACKを受けて送ったACKを受ける
 	ack := <-chHeader
-	fmt.Printf("ACK is %+v\n", ack)
-	//for v := range chHeader {
-	//	fmt.Printf("ACK is %+v\n", v)
-	//}
 
-	return nil
+	return ack, nil
 }
 
 func handleConnection(pconn net.PacketConn, tcpHeader TCPHeader, client net.Addr, port int, ch chan TCPHeader) {
@@ -105,6 +102,7 @@ func handleConnection(pconn net.PacketConn, tcpHeader TCPHeader, client net.Addr
 		if err != nil {
 			log.Fatalf(" Write SYNACK is err : %v\n", err)
 		}
+		fmt.Println("Send SYNACK Packet")
 		// ACKまできたのでchannelで一度返す
 		ch <- tcpHeader
 	case PSH + ACK:

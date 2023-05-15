@@ -3,8 +3,11 @@ package rfc9401
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
+	"math/rand"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func uint16ToByte(i uint16) []byte {
@@ -59,4 +62,15 @@ func ipv4ToByte(ipv4 string) []byte {
 		b.Write([]byte{byte(i)})
 	}
 	return b.Bytes()
+}
+
+func ipv4ByteToString(ipv4 []byte) string {
+	return fmt.Sprintf("%d.%d.%d.%d", ipv4[0], ipv4[1], ipv4[2], ipv4[3])
+}
+
+func getRandomClientPort() int {
+	rand.Seed(time.Now().UnixNano())
+	min := 50000
+	max := 60000
+	return rand.Intn(max-min+1) + min
 }

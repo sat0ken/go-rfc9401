@@ -2,6 +2,7 @@ package rfc9401
 
 import (
 	"bytes"
+	"net"
 )
 
 /*
@@ -114,8 +115,6 @@ func ParseHeader(packet []byte, clientAddr string, serverAddr string) (tcpHeader
 		tcpHeader.Data = packet[tcpHeader.DataOffset:]
 	}
 
-	//fmt.Printf("tcp len is %+v\n", tcpHeader)
-
 	return tcpHeader
 }
 
@@ -190,12 +189,26 @@ func (tcpheader *TCPHeader) ToPacket() (packet []byte) {
 	packet = b.Bytes()
 	// checksumを計算
 	var calc []byte
+	// TCPダミーヘッダをセット
 	if tcpheader.Data == nil {
 		calc = tcpheader.TCPDummyHeader.ToPacket(40)
 	} else {
 		calc = tcpheader.TCPDummyHeader.ToPacket(len(tcpheader.Data) + 40)
 	}
 	calc = append(calc, packet...)
+	// https://atmarkit.itmedia.co.jp/ait/articles/0401/29/news080_2.html
+	// TCPのチェックサムを計算する場合は、先頭にこの擬似的なヘッダが存在するものとして、TCPヘッダ、TCPペイロードとともに計算する。
+	// IPアドレスの情報はIPヘッダ中から抜き出してくる。
+	// ペイロード長が奇数の場合は、最後に1byteの「0」を補って計算する（この追加する1byteのデータは、パケット長には含めない）。
+	if tcpheader.Data != nil {
+		if len(tcpheader.Data)%2 != 0 {
+			calc = append(packet, tcpheader.Data...)
+			calc = append(packet, 0x00)
+		} else {
+			calc = append(packet, tcpheader.Data...)
+		}
+	}
+
 	checksum := calcChecksum(calc)
 
 	// 計算したchecksumをセット
@@ -213,4 +226,22 @@ func (dummyHeader *TCPDummyHeader) ToPacket(length int) []byte {
 	b.Write([]byte{0x00, 0x06})
 	b.Write(uint16ToByte(uint16(length)))
 	return b.Bytes()
+}
+
+// PSHACKでデータを送る
+func (tcpHeader *TCPHeader) Write(data []byte) error {
+	tcpHeader.TCPCtrlFlags.PSH = 1
+	// TCPデータをセット
+	tcpHeader.Data = data
+
+	conn, err := net.Dial("ip:tcp", ipv4ByteToString(tcpHeader.TCPDummyHeader.DestIP))
+	if err != nil {
+		return err
+	}
+	_, err = conn.Write(tcpHeader.ToPacket())
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
