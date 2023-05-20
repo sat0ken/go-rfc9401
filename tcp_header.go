@@ -2,6 +2,7 @@ package rfc9401
 
 import (
 	"bytes"
+	"fmt"
 	"net"
 )
 
@@ -191,10 +192,11 @@ func (tcpheader *TCPHeader) ToPacket() (packet []byte) {
 	var calc []byte
 	// TCPダミーヘッダをセット
 	if tcpheader.Data == nil {
-		calc = tcpheader.TCPDummyHeader.ToPacket(40)
+		calc = tcpheader.TCPDummyHeader.ToPacket(len(packet))
 	} else {
-		calc = tcpheader.TCPDummyHeader.ToPacket(len(tcpheader.Data) + 40)
+		calc = tcpheader.TCPDummyHeader.ToPacket(len(tcpheader.Data) + len(packet))
 	}
+	// TCPヘッダを追加
 	calc = append(calc, packet...)
 	// https://atmarkit.itmedia.co.jp/ait/articles/0401/29/news080_2.html
 	// TCPのチェックサムを計算する場合は、先頭にこの擬似的なヘッダが存在するものとして、TCPヘッダ、TCPペイロードとともに計算する。
@@ -202,10 +204,10 @@ func (tcpheader *TCPHeader) ToPacket() (packet []byte) {
 	// ペイロード長が奇数の場合は、最後に1byteの「0」を補って計算する（この追加する1byteのデータは、パケット長には含めない）。
 	if tcpheader.Data != nil {
 		if len(tcpheader.Data)%2 != 0 {
-			calc = append(packet, tcpheader.Data...)
-			calc = append(packet, 0x00)
+			calc = append(calc, tcpheader.Data...)
+			calc = append(calc, 0x00)
 		} else {
-			calc = append(packet, tcpheader.Data...)
+			calc = append(calc, tcpheader.Data...)
 		}
 	}
 
@@ -214,6 +216,10 @@ func (tcpheader *TCPHeader) ToPacket() (packet []byte) {
 	// 計算したchecksumをセット
 	packet[16] = checksum[0]
 	packet[17] = checksum[1]
+	// TCPデータをセット
+	if tcpheader.Data != nil {
+		packet = append(packet, tcpheader.Data...)
+	}
 
 	return packet
 }
@@ -230,7 +236,15 @@ func (dummyHeader *TCPDummyHeader) ToPacket(length int) []byte {
 
 // PSHACKでデータを送る
 func (tcpHeader *TCPHeader) Write(data []byte) error {
+	chHeader := make(chan TCPHeader)
+	go func() {
+		ListenPacket(ipv4ByteToString(tcpHeader.TCPDummyHeader.SourceIP), int(byteToUint16(tcpHeader.SourcePort)), chHeader)
+	}()
+
 	tcpHeader.TCPCtrlFlags.PSH = 1
+	// Optionめんどいから消す
+	tcpHeader.Options = nil
+	tcpHeader.DataOffset = 20
 	// TCPデータをセット
 	tcpHeader.Data = data
 
@@ -242,6 +256,11 @@ func (tcpHeader *TCPHeader) Write(data []byte) error {
 	if err != nil {
 		return err
 	}
+	fmt.Println("Send PSHACK packet")
+
+	// PSHACKを受けて送ったACKを受ける
+	pshack := <-chHeader
+	fmt.Printf("PSHACK is %+v\n", pshack)
 
 	return nil
 }

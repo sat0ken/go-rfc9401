@@ -19,7 +19,6 @@ func ListenPacket(serverAddr string, port int, chHeader chan TCPHeader) error {
 			return err
 		}
 		tcpHeader := ParseHeader(buf[:n], clientAddr.String(), serverAddr)
-		fmt.Printf("recv tcp is %+v\n", tcpHeader)
 		// 宛先ポートがサーバがListenしているポートであれば
 		if byteToUint16(tcpHeader.DestPort) == uint16(port) {
 			handleConnection(pconn, tcpHeader, pconn.LocalAddr(), port, chHeader)
@@ -96,8 +95,9 @@ func handleConnection(pconn net.PacketConn, tcpHeader TCPHeader, client net.Addr
 		// ACKに
 		tcpHeader.AckNumber = addAckNumber(tcpHeader.SeqNumber, 1)
 		tcpHeader.SeqNumber = tmpack
-
+		tcpHeader.DataOffset = 20
 		tcpHeader.TCPCtrlFlags.SYN = 0
+		tcpHeader.Options = nil
 		_, err := pconn.WriteTo(tcpHeader.ToPacket(), client)
 		if err != nil {
 			log.Fatalf(" Write SYNACK is err : %v\n", err)
