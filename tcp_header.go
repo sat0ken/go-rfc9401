@@ -238,7 +238,7 @@ func (dummyHeader *TCPDummyHeader) ToPacket(length int) []byte {
 func (tcpHeader *TCPHeader) Write(data []byte) error {
 	chHeader := make(chan TCPHeader)
 	go func() {
-		ListenPacket(ipv4ByteToString(tcpHeader.TCPDummyHeader.SourceIP), int(byteToUint16(tcpHeader.SourcePort)), chHeader)
+		ListenPacket(ipv4ByteToString(tcpHeader.TCPDummyHeader.SourceIP), clientPort, chHeader)
 	}()
 
 	tcpHeader.TCPCtrlFlags.PSH = 1

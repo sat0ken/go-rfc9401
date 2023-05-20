@@ -6,6 +6,8 @@ import (
 	"net"
 )
 
+const clientPort = 60120
+
 func ListenPacket(serverAddr string, port int, chHeader chan TCPHeader) error {
 	pconn, err := net.ListenPacket("ip:tcp", serverAddr)
 	if err != nil {
@@ -30,7 +32,7 @@ func Dial(clientAddr string, serverAddr string, port int) (TCPHeader, error) {
 
 	chHeader := make(chan TCPHeader)
 	go func() {
-		ListenPacket(serverAddr, 60120, chHeader)
+		ListenPacket(serverAddr, clientPort, chHeader)
 	}()
 
 	conn, err := net.Dial("ip:tcp", serverAddr)
