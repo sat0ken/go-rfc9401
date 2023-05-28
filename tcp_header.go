@@ -3,7 +3,8 @@ package rfc9401
 import (
 	"bytes"
 	"fmt"
-	"net"
+	"log"
+	"syscall"
 )
 
 /*
@@ -41,9 +42,17 @@ const (
 	CWR = 0x80
 )
 
+var SYNPacket = []byte{
+	0x93, 0x6a, 0x46, 0xa0, 0x0c, 0x81, 0xbc, 0x1c,
+	0x00, 0x00, 0x00, 0x00, 0xa0, 0x02, 0xff, 0xd7,
+	0xca, 0x69, 0x00, 0x00, 0x02, 0x04, 0xff, 0xd7,
+	0x04, 0x02, 0x08, 0x0a, 0x31, 0x07, 0xb1, 0xe8,
+	0x00, 0x00, 0x00, 0x00, 0x01, 0x03, 0x03, 0x07,
+}
+
 var TCPOptions = []byte{
 	0x02, 0x04, 0xff, 0xd7, 0x04, 0x02, 0x08, 0x0a,
-	0x9c, 0xb7, 0x7e, 0xe1, 0x00, 0x00, 0x00, 0x00,
+	0x31, 0x07, 0xb1, 0xe8, 0x00, 0x00, 0x00, 0x00,
 	0x01, 0x03, 0x03, 0x07,
 }
 
@@ -95,8 +104,8 @@ func (ctrlFlags *TCPCtrlFlags) ParseTCPCtrlFlags(packet uint8) {
 
 func ParseHeader(packet []byte, clientAddr string, serverAddr string) (tcpHeader TCPHeader) {
 	// SourceのIPアドレスとDestinationのIPアドレスをダミーヘッダにセット
-	tcpHeader.TCPDummyHeader.SourceIP = ipv4ToByte(clientAddr)
-	tcpHeader.TCPDummyHeader.DestIP = ipv4ToByte(serverAddr)
+	tcpHeader.TCPDummyHeader.SourceIP = ipv4ToByte(serverAddr)
+	tcpHeader.TCPDummyHeader.DestIP = ipv4ToByte(clientAddr)
 
 	// TCPヘッダをセット
 	tcpHeader.SourcePort = packet[0:2]
@@ -235,11 +244,16 @@ func (dummyHeader *TCPDummyHeader) ToPacket(length int) []byte {
 }
 
 // PSHACKでデータを送る
-func (tcpHeader *TCPHeader) Write(data []byte) error {
+func (tcpHeader *TCPHeader) Write(fd int, data []byte) error {
 	chHeader := make(chan TCPHeader)
 	go func() {
-		ListenPacket(ipv4ByteToString(tcpHeader.TCPDummyHeader.SourceIP), clientPort, chHeader)
+		ListenPacket(fd, ipv4ByteToString(tcpHeader.TCPDummyHeader.DestIP), clientPort, chHeader)
 	}()
+
+	addr := syscall.SockaddrInet4{
+		Port: int(byteToUint16(tcpHeader.DestPort)),
+	}
+	copy(addr.Addr[:], tcpHeader.TCPDummyHeader.DestIP)
 
 	tcpHeader.TCPCtrlFlags.PSH = 1
 	// Optionめんどいから消す
@@ -248,19 +262,17 @@ func (tcpHeader *TCPHeader) Write(data []byte) error {
 	// TCPデータをセット
 	tcpHeader.Data = data
 
-	conn, err := net.Dial("ip:tcp", ipv4ByteToString(tcpHeader.TCPDummyHeader.DestIP))
+	// PSHACKパケットを送信
+	err := syscall.Sendto(fd, tcpHeader.ToPacket(), 0, &addr)
 	if err != nil {
-		return err
+		log.Fatalf("Write SYNACK is err : %v\n", err)
 	}
-	_, err = conn.Write(tcpHeader.ToPacket())
-	if err != nil {
-		return err
-	}
+
 	fmt.Println("Send PSHACK packet")
 
 	// PSHACKを受けて送ったACKを受ける
 	pshack := <-chHeader
-	fmt.Printf("PSHACK is %+v\n", pshack)
+	fmt.Printf("ACK for PSH is %+v\n", pshack)
 
 	return nil
 }

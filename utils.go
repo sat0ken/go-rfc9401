@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -64,6 +65,16 @@ func ipv4ToByte(ipv4 string) []byte {
 	return b.Bytes()
 }
 
+func ipv4To4Byte(ipv4 string) [4]byte {
+	var b [4]byte
+	str := strings.Split(ipv4, ".")
+	for index, v := range str {
+		i, _ := strconv.Atoi(v)
+		b[index] = byte(i)
+	}
+	return b
+}
+
 func ipv4ByteToString(ipv4 []byte) string {
 	return fmt.Sprintf("%d.%d.%d.%d", ipv4[0], ipv4[1], ipv4[2], ipv4[3])
 }
@@ -73,4 +84,12 @@ func getRandomClientPort() int {
 	min := 50000
 	max := 60000
 	return rand.Intn(max-min+1) + min
+}
+
+func rawsocket() (int, error) {
+	soc, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_TCP)
+	if err != nil {
+		return -1, fmt.Errorf("Create Socket err : %s", err)
+	}
+	return soc, nil
 }
