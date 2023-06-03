@@ -6,10 +6,17 @@ import (
 	"net"
 )
 
-const clientPort = 37738
+//const clientPort = 37738
 
-func ListenPacket(listenAddr string, port int, chHeader chan TCPHeader) error {
-	conn, err := net.ListenPacket("ip:tcp", listenAddr)
+const NETWORK_STR = "ip:tcp"
+
+type TcpState struct {
+	tcpHeader TCPHeader
+	err       error
+}
+
+func ListenPacket(listenAddr string, port int, chHeader chan TcpState) error {
+	conn, err := net.ListenPacket(NETWORK_STR, listenAddr)
 	if err != nil {
 		log.Fatalf("ListenPacket is err : %v", err)
 	}
@@ -23,6 +30,8 @@ func ListenPacket(listenAddr string, port int, chHeader chan TCPHeader) error {
 		}
 		tcp := parseTCPHeader(buf[:n], clientAddr.String(), listenAddr)
 		// 宛先ポートがクライアントのソースポートであれば
+		fmt.Printf("tcp.Destport is %d, port is %d\n", byteToUint16(tcp.DestPort), port)
+		fmt.Printf("tcp header is %+v\n", tcp)
 		if byteToUint16(tcp.DestPort) == uint16(port) {
 			// fmt.Printf("tcp header is %+v\n", tcp)
 			handleTCPConnection(conn, tcp, conn.LocalAddr(), port, chHeader)
@@ -30,13 +39,15 @@ func ListenPacket(listenAddr string, port int, chHeader chan TCPHeader) error {
 	}
 }
 
-func Dial(clientAddr string, serverAddr string, port int) (TCPHeader, error) {
+func Dial(clientAddr string, serverAddr string, serverpPort int) (TCPHeader, error) {
 
-	chHeader := make(chan TCPHeader)
+	clientPort := getRandomClientPort()
+
+	chHeader := make(chan TcpState)
 	go func() {
 		ListenPacket(serverAddr, clientPort, chHeader)
 	}()
-	conn, err := net.Dial("ip:tcp", serverAddr)
+	conn, err := net.Dial(NETWORK_STR, serverAddr)
 	if err != nil {
 		return TCPHeader{}, err
 	}
@@ -48,8 +59,8 @@ func Dial(clientAddr string, serverAddr string, port int) (TCPHeader, error) {
 			SourceIP: ipv4ToByte(clientAddr),
 			DestIP:   ipv4ToByte(serverAddr),
 		},
-		SourcePort:    uint16ToByte(clientPort),
-		DestPort:      uint16ToByte(uint16(port)),
+		SourcePort:    uint16ToByte(uint16(clientPort)),
+		DestPort:      uint16ToByte(uint16(serverpPort)),
 		SeqNumber:     uint32ToByte(209828892),
 		AckNumber:     uint32ToByte(0),
 		DataOffset:    40,
@@ -69,14 +80,16 @@ func Dial(clientAddr string, serverAddr string, port int) (TCPHeader, error) {
 	}
 
 	fmt.Println("Send SYN Packet")
-	// SYNACKを受けて送ったACKを受ける
-	ack := <-chHeader
-	fmt.Printf("ACK Packet is %+v\n", ack)
+	// SYNACKに対して受信したACKを受ける
+	result := <-chHeader
+	if result.err != nil {
+		return TCPHeader{}, result.err
+	}
 
-	return ack, nil
+	return result.tcpHeader, nil
 }
 
-func handleTCPConnection(pconn net.PacketConn, tcpHeader TCPHeader, client net.Addr, port int, ch chan TCPHeader) {
+func handleTCPConnection(pconn net.PacketConn, tcpHeader TCPHeader, client net.Addr, port int, ch chan TcpState) {
 
 	switch tcpHeader.TCPCtrlFlags.getState() {
 	case SYN:
@@ -107,16 +120,42 @@ func handleTCPConnection(pconn net.PacketConn, tcpHeader TCPHeader, client net.A
 		// ACKパケットを送信
 		_, err := pconn.WriteTo(tcpHeader.toPacket(), client)
 		if err != nil {
-			log.Fatal(" Write SYNACK is err : %v\n", err)
+			ch <- TcpState{tcpHeader: TCPHeader{}, err: fmt.Errorf("Send SYNACK err: %v", err)}
 		}
 		fmt.Println("Send ACK Packet")
 		// ACKまできたのでchannelで一度返す
-		ch <- tcpHeader
+		ch <- TcpState{tcpHeader: tcpHeader, err: nil}
 	case PSH + ACK:
 		// Todo: ACKを返す
 	case FIN + ACK:
-		// Todo: FINACKを返す
+		// Todo: ACKを返す
+		fmt.Println("Recv FINACK packet")
+		tcpHeader.DestPort = tcpHeader.SourcePort
+		tcpHeader.SourcePort = uint16ToByte(uint16(port))
+		// ACKをいったん保存
+		tmpack := tcpHeader.AckNumber
+		// ACKに
+		tcpHeader.AckNumber = addAckNumber(tcpHeader.SeqNumber, 1)
+		tcpHeader.SeqNumber = tmpack
+		tcpHeader.DataOffset = 20
+		tcpHeader.TCPCtrlFlags.FIN = 0
+		tcpHeader.Options = nil
+		// ACKパケットを送信
+		_, err := pconn.WriteTo(tcpHeader.toPacket(), client)
+		if err != nil {
+			ch <- TcpState{tcpHeader: TCPHeader{}, err: fmt.Errorf("Send SYNACK err: %v", err)}
+		}
+		fmt.Println("Send ACK to FINACK Packet")
+		ch <- TcpState{tcpHeader: tcpHeader, err: nil}
 	case ACK:
 		fmt.Println("Recv ACK packet")
+		tcpHeader.DestPort = tcpHeader.SourcePort
+		tcpHeader.SourcePort = uint16ToByte(uint16(port))
+		// ACKをいったん保存
+		tmpack := tcpHeader.AckNumber
+		// ACKに
+		tcpHeader.AckNumber = addAckNumber(tcpHeader.SeqNumber, 1)
+		tcpHeader.SeqNumber = tmpack
+		ch <- TcpState{tcpHeader: tcpHeader, err: nil}
 	}
 }

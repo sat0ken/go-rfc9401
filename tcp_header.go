@@ -3,8 +3,8 @@ package rfc9401
 import (
 	"bytes"
 	"fmt"
-	"log"
 	"net"
+	"os"
 )
 
 /*
@@ -244,10 +244,11 @@ func (dummyHeader *tcpDummyHeader) toPacket(length int) []byte {
 }
 
 // PSHACKでデータを送る
-func (tcpheader *TCPHeader) Write(data []byte) error {
-	chHeader := make(chan TCPHeader)
+func (tcpheader *TCPHeader) Write(data []byte) (TCPHeader, error) {
+	chHeader := make(chan TcpState)
 	go func() {
-		ListenPacket(ipv4ByteToString(tcpheader.TCPDummyHeader.SourceIP), clientPort, chHeader)
+		ListenPacket(ipv4ByteToString(tcpheader.TCPDummyHeader.SourceIP),
+			int(byteToUint16(tcpheader.SourcePort)), chHeader)
 	}()
 
 	tcpheader.TCPCtrlFlags.PSH = 1
@@ -257,23 +258,58 @@ func (tcpheader *TCPHeader) Write(data []byte) error {
 	// TCPデータをセット
 	tcpheader.Data = data
 
-	conn, err := net.Dial("ip:tcp", ipv4ByteToString(tcpheader.TCPDummyHeader.DestIP))
+	conn, err := net.Dial(NETWORK_STR, ipv4ByteToString(tcpheader.TCPDummyHeader.DestIP))
 	if err != nil {
-		return fmt.Errorf("connection err : %v", err)
+		return TCPHeader{}, fmt.Errorf("connection err : %v", err)
 	}
 	defer conn.Close()
 
 	// PSHACKパケットを送信
 	_, err = conn.Write(tcpheader.toPacket())
 	if err != nil {
-		log.Fatalf("send data err : %v\n", err)
+		return TCPHeader{}, fmt.Errorf("send data err : %v\n", err)
 	}
 
 	fmt.Println("Send PSHACK packet")
 
 	// PSHACKを受けて送ったACKを受ける
-	pshack := <-chHeader
-	fmt.Printf("ACK for PSH is %+v\n", pshack)
+	result := <-chHeader
+	if result.err != nil {
+		return TCPHeader{}, err
+	}
+
+	fmt.Printf("ACK State header is %+v\n", result.tcpHeader)
+
+	return result.tcpHeader, nil
+}
+
+func (tcpheader *TCPHeader) Close() error {
+	chHeader := make(chan TcpState)
+	go func() {
+		ListenPacket(ipv4ByteToString(tcpheader.TCPDummyHeader.SourceIP),
+			int(byteToUint16(tcpheader.SourcePort)), chHeader)
+	}()
+
+	tcpheader.TCPCtrlFlags.FIN = 1
+	conn, err := net.Dial(NETWORK_STR, ipv4ByteToString(tcpheader.TCPDummyHeader.DestIP))
+	if err != nil {
+		return fmt.Errorf("connection err : %v", err)
+	}
+	defer conn.Close()
+
+	// FINACKパケットを送信
+	_, err = conn.Write(tcpheader.toPacket())
+	if err != nil {
+		return fmt.Errorf("send fin err : %v\n", err)
+	}
+	fmt.Println("Send FIN packet")
+	// channelで結果を受ける
+	result := <-chHeader
+	if result.err != nil {
+		return result.err
+	}
+
+	os.Exit(0)
 
 	return nil
 }
