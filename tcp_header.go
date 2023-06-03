@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"net"
-	"os"
 )
 
 /*
@@ -302,14 +301,13 @@ func (tcpheader *TCPHeader) Close() error {
 	if err != nil {
 		return fmt.Errorf("send fin err : %v\n", err)
 	}
-	fmt.Println("Send FIN packet")
+	fmt.Println("Send FINACK packet")
 	// channelで結果を受ける
 	result := <-chHeader
 	if result.err != nil {
 		return result.err
 	}
-
-	os.Exit(0)
+	close(chHeader)
 
 	return nil
 }
