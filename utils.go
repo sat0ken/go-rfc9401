@@ -7,7 +7,6 @@ import (
 	"math/rand"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -81,36 +80,18 @@ func ipv4ByteToString(ipv4 []byte) string {
 
 func getRandomClientPort() int {
 	rand.Seed(time.Now().UnixNano())
-	min := 50000
+	min := 30000
 	max := 60000
 	return rand.Intn(max-min+1) + min
 }
 
-func htons(i uint16) uint16 {
-	return (i<<8)&0xff00 | i>>8
-}
+func CreateHttpGet(server string, port int) []byte {
 
-func sendsocket() (int, error) {
-	soc, err := syscall.Socket(syscall.AF_PACKET, syscall.SOCK_RAW, int(htons(syscall.ETH_P_ALL)))
-	if err != nil {
-		return -1, fmt.Errorf("Create Socket err : %s", err)
-	}
-	return soc, nil
-}
+	reqstr := "GET / HTTP/1.1\n"
+	reqstr += fmt.Sprintf("Host: %s:%d\n", server, port)
+	reqstr += "User-Agent: curl/7.81.0\n"
+	// reqstr += "Connection: close\n"
+	reqstr += "Accept: */*\n\n"
 
-func recvsocket(index int) (int, error) {
-	sock, err := syscall.Socket(syscall.AF_PACKET, syscall.SOCK_RAW, int(htons(syscall.ETH_P_ALL)))
-	if err != nil {
-		return -1, fmt.Errorf("Create Socket err : %s", err)
-	}
-	// socketにインターフェイスをbindする
-	addr := syscall.SockaddrLinklayer{
-		Protocol: htons(syscall.ETH_P_ALL),
-		Ifindex:  index,
-	}
-	err = syscall.Bind(sock, &addr)
-	if err != nil {
-		return -1, fmt.Errorf("bind err : %v", err)
-	}
-	return sock, nil
+	return []byte(reqstr)
 }

@@ -30,8 +30,6 @@ func ListenPacket(listenAddr string, port int, chHeader chan TcpState) error {
 		}
 		tcp := parseTCPHeader(buf[:n], clientAddr.String(), listenAddr)
 		// 宛先ポートがクライアントのソースポートであれば
-		fmt.Printf("tcp.Destport is %d, port is %d\n", byteToUint16(tcp.DestPort), port)
-		fmt.Printf("tcp header is %+v\n", tcp)
 		if byteToUint16(tcp.DestPort) == uint16(port) {
 			// fmt.Printf("tcp header is %+v\n", tcp)
 			handleTCPConnection(conn, tcp, conn.LocalAddr(), port, chHeader)
@@ -127,6 +125,7 @@ func handleTCPConnection(pconn net.PacketConn, tcpHeader TCPHeader, client net.A
 		ch <- TcpState{tcpHeader: tcpHeader, err: nil}
 	case PSH + ACK:
 		// Todo: ACKを返す
+		fmt.Println("Recv PSHACK packet")
 	case FIN + ACK:
 		// Todo: ACKを返す
 		fmt.Println("Recv FINACK packet")
@@ -134,8 +133,9 @@ func handleTCPConnection(pconn net.PacketConn, tcpHeader TCPHeader, client net.A
 		tcpHeader.SourcePort = uint16ToByte(uint16(port))
 		// ACKをいったん保存
 		tmpack := tcpHeader.AckNumber
-		// ACKに
-		tcpHeader.AckNumber = addAckNumber(tcpHeader.SeqNumber, 1)
+		// ACKにSEQを
+		tcpHeader.AckNumber = tcpHeader.SeqNumber
+		// SEQにACKを
 		tcpHeader.SeqNumber = tmpack
 		tcpHeader.DataOffset = 20
 		tcpHeader.TCPCtrlFlags.FIN = 0

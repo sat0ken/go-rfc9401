@@ -12,7 +12,7 @@ func main() {
 	}
 
 	//for i := 0; i < 3; i++ {
-	conn, err = conn.Write([]byte{0x68, 0x6f, 0x67, 0x65, 0x0a})
+	conn, err = conn.Write(rfc9401.CreateHttpGet("127.0.0.1", 18080))
 	if err != nil {
 		log.Fatalf("Write error : %v", err)
 	}
