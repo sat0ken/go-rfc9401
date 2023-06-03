@@ -313,3 +313,15 @@ func (tcpheader *TCPHeader) Close() error {
 
 	return nil
 }
+
+func (tcpheader *TCPHeader) Wait() {
+	chHeader := make(chan TcpState)
+	go func() {
+		ListenPacket(ipv4ByteToString(tcpheader.TCPDummyHeader.SourceIP),
+			int(byteToUint16(tcpheader.SourcePort)), chHeader)
+	}()
+
+	result := <-chHeader
+
+	fmt.Printf("wait result is %+v\n", result.tcpHeader)
+}

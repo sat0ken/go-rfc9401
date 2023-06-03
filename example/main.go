@@ -17,6 +17,7 @@ func main() {
 		log.Fatalf("Write error : %v", err)
 	}
 	//}
+	conn.Wait()
 
 	conn.Close()
 }

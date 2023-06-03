@@ -126,6 +126,25 @@ func handleTCPConnection(pconn net.PacketConn, tcpHeader TCPHeader, client net.A
 	case PSH + ACK:
 		// Todo: ACKを返す
 		fmt.Println("Recv PSHACK packet")
+		tcpHeader.DestPort = tcpHeader.SourcePort
+		tcpHeader.SourcePort = uint16ToByte(uint16(port))
+		// ACKをいったん保存
+		tmpack := tcpHeader.AckNumber
+		// ACKに
+		tcpHeader.AckNumber = addAckNumber(tcpHeader.SeqNumber, uint32(len(tcpHeader.Data)))
+		tcpHeader.SeqNumber = tmpack
+		tcpHeader.DataOffset = 20
+		tcpHeader.TCPCtrlFlags.PSH = 0
+		tcpHeader.Options = nil
+		tcpHeader.Data = nil
+		// ACKパケットを送信
+		_, err := pconn.WriteTo(tcpHeader.toPacket(), client)
+		if err != nil {
+			ch <- TcpState{tcpHeader: TCPHeader{}, err: fmt.Errorf("Send SYNACK err: %v", err)}
+		}
+		fmt.Println("Send ACK to PSHACK Packet")
+		// ACKまできたのでchannelで一度返す
+		ch <- TcpState{tcpHeader: tcpHeader, err: nil}
 	case FIN + ACK:
 		// Todo: ACKを返す
 		fmt.Println("Recv FINACK packet")
