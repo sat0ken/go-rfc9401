@@ -86,10 +86,31 @@ func getRandomClientPort() int {
 	return rand.Intn(max-min+1) + min
 }
 
-func rawsocket() (int, error) {
-	soc, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_TCP)
+func htons(i uint16) uint16 {
+	return (i<<8)&0xff00 | i>>8
+}
+
+func sendsocket() (int, error) {
+	soc, err := syscall.Socket(syscall.AF_PACKET, syscall.SOCK_RAW, int(htons(syscall.ETH_P_ALL)))
 	if err != nil {
 		return -1, fmt.Errorf("Create Socket err : %s", err)
 	}
 	return soc, nil
+}
+
+func recvsocket(index int) (int, error) {
+	sock, err := syscall.Socket(syscall.AF_PACKET, syscall.SOCK_RAW, int(htons(syscall.ETH_P_ALL)))
+	if err != nil {
+		return -1, fmt.Errorf("Create Socket err : %s", err)
+	}
+	// socketにインターフェイスをbindする
+	addr := syscall.SockaddrLinklayer{
+		Protocol: htons(syscall.ETH_P_ALL),
+		Ifindex:  index,
+	}
+	err = syscall.Bind(sock, &addr)
+	if err != nil {
+		return -1, fmt.Errorf("bind err : %v", err)
+	}
+	return sock, nil
 }
