@@ -74,14 +74,3 @@ func getRandomClientPort() int {
 	max := 60000
 	return rand.Intn(max-min+1) + min
 }
-
-func CreateHttpGet(server string, port int) []byte {
-
-	reqstr := "GET / HTTP/1.1\n"
-	reqstr += fmt.Sprintf("Host: %s:%d\n", server, port)
-	reqstr += "User-Agent: curl/7.81.0\n"
-	// reqstr += "Connection: close\n"
-	reqstr += "Accept: */*\n\n"
-
-	return []byte(reqstr)
-}
