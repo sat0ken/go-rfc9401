@@ -61,18 +61,17 @@ func Dial(clientAddr string, serverAddr string, serverpPort int) (TCPHeader, err
 		DestPort:      uint16ToByte(uint16(serverpPort)),
 		SeqNumber:     uint32ToByte(209828892),
 		AckNumber:     uint32ToByte(0),
-		DataOffset:    40,
+		DataOffset:    20,
 		DTH:           0,
 		Reserved:      0,
 		TCPCtrlFlags:  tcpCtrlFlags{SYN: 1},
 		WindowSize:    uint16ToByte(65495),
 		Checksum:      uint16ToByte(0),
 		UrgentPointer: uint16ToByte(0),
-		// Options:       TCPOptions,
 	}
 
 	// SYNパケットを送る
-	_, err = conn.Write(syn.toPacket())
+	_, err = conn.Write(syn.toPacket(SYN))
 	if err != nil {
 		return TCPHeader{}, fmt.Errorf("SYN Packet Send error : %s", err)
 	}
@@ -98,7 +97,7 @@ func handleTCPConnection(pconn net.PacketConn, tcpHeader TCPHeader, client net.A
 		tcpHeader.SeqNumber = []byte{0x00, 0x00, 0x00, 0x00}
 		tcpHeader.TCPCtrlFlags.ACK = 1
 		// SYNACKパケットを送信
-		_, err := pconn.WriteTo(tcpHeader.toPacket(), client)
+		_, err := pconn.WriteTo(tcpHeader.toPacket(SYN+ACK), client)
 		if err != nil {
 			log.Fatal(" Write SYNACK is err : %v\n", err)
 		}
@@ -112,11 +111,11 @@ func handleTCPConnection(pconn net.PacketConn, tcpHeader TCPHeader, client net.A
 		// ACKに
 		tcpHeader.AckNumber = addAckNumber(tcpHeader.SeqNumber, 1)
 		tcpHeader.SeqNumber = tmpack
+		// Option+12byte
 		tcpHeader.DataOffset = 20
 		tcpHeader.TCPCtrlFlags.SYN = 0
-		tcpHeader.Options = nil
 		// ACKパケットを送信
-		_, err := pconn.WriteTo(tcpHeader.toPacket(), client)
+		_, err := pconn.WriteTo(tcpHeader.toPacket(ACK), client)
 		if err != nil {
 			ch <- TcpState{tcpHeader: TCPHeader{}, err: fmt.Errorf("Send SYNACK err: %v", err)}
 		}
@@ -135,10 +134,9 @@ func handleTCPConnection(pconn net.PacketConn, tcpHeader TCPHeader, client net.A
 		tcpHeader.SeqNumber = tmpack
 		tcpHeader.DataOffset = 20
 		tcpHeader.TCPCtrlFlags.PSH = 0
-		tcpHeader.Options = nil
 		tcpHeader.Data = nil
 		// ACKパケットを送信
-		_, err := pconn.WriteTo(tcpHeader.toPacket(), client)
+		_, err := pconn.WriteTo(tcpHeader.toPacket(ACK), client)
 		if err != nil {
 			ch <- TcpState{tcpHeader: TCPHeader{}, err: fmt.Errorf("Send SYNACK err: %v", err)}
 		}
@@ -158,9 +156,8 @@ func handleTCPConnection(pconn net.PacketConn, tcpHeader TCPHeader, client net.A
 		tcpHeader.SeqNumber = tmpack
 		tcpHeader.DataOffset = 20
 		tcpHeader.TCPCtrlFlags.FIN = 0
-		tcpHeader.Options = nil
 		// ACKパケットを送信
-		_, err := pconn.WriteTo(tcpHeader.toPacket(), client)
+		_, err := pconn.WriteTo(tcpHeader.toPacket(ACK), client)
 		if err != nil {
 			ch <- TcpState{tcpHeader: TCPHeader{}, err: fmt.Errorf("Send SYNACK err: %v", err)}
 		}

@@ -41,15 +41,6 @@ const (
 	CWR = 0x80
 )
 
-const (
-	TCP_Option_No_Operation         = 1
-	TCP_OPTION_Maximum_Segment_Size = 2
-	TCP_Option_Window_Scale         = 3
-	TCP_Option_SACK_Permitted       = 4
-	TCP_Option_SACK                 = 5
-	TCP_Option_Timestamps           = 8
-)
-
 type TCPHeader struct {
 	TCPDummyHeader tcpDummyHeader
 	SourcePort     []byte
@@ -65,37 +56,6 @@ type TCPHeader struct {
 	UrgentPointer  []byte
 	Options        tcpOptions
 	Data           []byte
-}
-
-type tcpOptions struct {
-	// No Operation
-	nop struct {
-		kind uint8
-	}
-	// Maximum Segment Size
-	mss struct {
-		kind   uint8
-		length uint8
-		value  uint16
-	}
-	// Window Scale
-	windowscale struct {
-		kind       uint8
-		length     uint8
-		shiftcount uint8
-	}
-	// SACK Permitted
-	sackpermitted struct {
-		kind   uint8
-		length uint8
-	}
-	// Timestamps
-	timestamp struct {
-		kind   uint8
-		length uint8
-		value  uint32
-		replay uint32
-	}
 }
 
 type tcpDummyHeader struct {
@@ -153,49 +113,6 @@ func parseTCPHeader(packet []byte, clientAddr string, serverAddr string) (tcpHea
 	return tcpHeader
 }
 
-func parseTCPOptions(packetOpts []byte) tcpOptions {
-	var tcpopt tcpOptions
-
-	for {
-		if len(packetOpts) == 0 {
-			break
-		} else {
-			switch packetOpts[0] {
-			case TCP_OPTION_Maximum_Segment_Size:
-				tcpopt.mss.kind = packetOpts[0]
-				tcpopt.mss.length = packetOpts[1]
-				tcpopt.mss.value = byteToUint16(packetOpts[2:4])
-				packetOpts = packetOpts[4:]
-			case TCP_Option_SACK_Permitted:
-				tcpopt.sackpermitted.kind = packetOpts[0]
-				tcpopt.sackpermitted.length = packetOpts[1]
-				packetOpts = packetOpts[2:]
-			case TCP_Option_Timestamps:
-				tcpopt.timestamp.kind = packetOpts[0]
-				tcpopt.timestamp.length = packetOpts[1]
-				tcpopt.timestamp.value = byteToUint32(packetOpts[2:6])
-				tcpopt.timestamp.replay = byteToUint32(packetOpts[6:10])
-				packetOpts = packetOpts[10:]
-			case TCP_Option_No_Operation:
-				tcpopt.nop.kind = packetOpts[0]
-				packetOpts = packetOpts[1:]
-			case TCP_Option_Window_Scale:
-				tcpopt.windowscale.kind = packetOpts[0]
-				tcpopt.windowscale.length = packetOpts[1]
-				tcpopt.windowscale.shiftcount = packetOpts[2]
-				packetOpts = packetOpts[3:]
-			}
-		}
-	}
-
-	return tcpopt
-}
-
-func (options *tcpOptions) toPacket() (opPacket []byte) {
-	var b bytes.Buffer
-	return b.Bytes()
-}
-
 func (ctrlFlags *tcpCtrlFlags) getState() int {
 	if ctrlFlags.SYN == 1 && ctrlFlags.ACK == 0 {
 		return SYN
@@ -241,7 +158,7 @@ func (ctrlFlags *tcpCtrlFlags) toPacket() (flags uint8) {
 	return flags
 }
 
-func (tcpheader *TCPHeader) toPacket() (packet []byte) {
+func (tcpheader *TCPHeader) toPacket(optType int) (packet []byte) {
 	var b bytes.Buffer
 
 	b.Write(tcpheader.SourcePort)
@@ -254,6 +171,7 @@ func (tcpheader *TCPHeader) toPacket() (packet []byte) {
 	if tcpheader.DTH == 1 && tcpheader.Reserved == 0 {
 		offset += 0x08
 	}
+
 	b.Write([]byte{offset})
 	b.Write([]byte{tcpheader.TCPCtrlFlags.toPacket()})
 	b.Write(tcpheader.WindowSize)
@@ -261,9 +179,13 @@ func (tcpheader *TCPHeader) toPacket() (packet []byte) {
 	tcpheader.Checksum = []byte{0x00, 0x00}
 	b.Write(tcpheader.Checksum)
 	b.Write(tcpheader.UrgentPointer)
-	if tcpheader.Options.toPacket() != nil {
-		b.Write(tcpheader.Options.toPacket())
-	}
+	//switch optType {
+	//case SYN:
+	//	b.Write(tcpheader.Options.optSYN())
+	//case SYN + ACK, ACK, FIN + ACK, PSH + ACK:
+	//	b.Write(tcpheader.Options.optACK(tcpheader.Options.timestamp.value))
+	//}
+
 	packet = b.Bytes()
 	// checksumを計算
 	var calc []byte
@@ -322,7 +244,7 @@ func (tcpheader *TCPHeader) Write(data []byte) (TCPHeader, error) {
 	tcpheader.TCPCtrlFlags.PSH = 1
 	// Optionめんどいから消す
 	// tcpheader.Options = nil
-	tcpheader.DataOffset = 20
+	// tcpheader.DataOffset = 32
 	// TCPデータをセット
 	tcpheader.Data = data
 
@@ -333,7 +255,7 @@ func (tcpheader *TCPHeader) Write(data []byte) (TCPHeader, error) {
 	defer conn.Close()
 
 	// PSHACKパケットを送信
-	_, err = conn.Write(tcpheader.toPacket())
+	_, err = conn.Write(tcpheader.toPacket(PSH + ACK))
 	if err != nil {
 		return TCPHeader{}, fmt.Errorf("send data err : %v\n", err)
 	}
@@ -366,7 +288,7 @@ func (tcpheader *TCPHeader) Close() error {
 	defer conn.Close()
 
 	// FINACKパケットを送信
-	_, err = conn.Write(tcpheader.toPacket())
+	_, err = conn.Write(tcpheader.toPacket(FIN + ACK))
 	if err != nil {
 		return fmt.Errorf("send fin err : %v\n", err)
 	}
