@@ -179,6 +179,8 @@ func (tcpheader *TCPHeader) toPacket(optType int) (packet []byte) {
 	tcpheader.Checksum = []byte{0x00, 0x00}
 	b.Write(tcpheader.Checksum)
 	b.Write(tcpheader.UrgentPointer)
+
+	// TCPオプションはセットしない
 	//switch optType {
 	//case SYN:
 	//	b.Write(tcpheader.Options.optSYN())
@@ -234,30 +236,29 @@ func (dummyHeader *tcpDummyHeader) toPacket(length int) []byte {
 }
 
 // PSHACKでデータを送る
-func (tcpheader *TCPHeader) Write(data []byte) (TCPHeader, error) {
+func (tcpheader *TCPHeader) Write(data []byte) (header TCPHeader, respdata []byte, err error) {
 	chHeader := make(chan TcpState)
 	go func() {
-		ListenPacket(ipv4ByteToString(tcpheader.TCPDummyHeader.SourceIP),
+		Listen(ipv4ByteToString(tcpheader.TCPDummyHeader.SourceIP),
 			int(byteToUint16(tcpheader.SourcePort)), chHeader)
 	}()
 
 	tcpheader.TCPCtrlFlags.PSH = 1
-	// Optionめんどいから消す
-	// tcpheader.Options = nil
-	// tcpheader.DataOffset = 32
+
+	// tcpheader.DTH = 1
 	// TCPデータをセット
 	tcpheader.Data = data
 
 	conn, err := net.Dial(NETWORK_STR, ipv4ByteToString(tcpheader.TCPDummyHeader.DestIP))
 	if err != nil {
-		return TCPHeader{}, fmt.Errorf("connection err : %v", err)
+		return TCPHeader{}, nil, fmt.Errorf("connection err : %v", err)
 	}
 	defer conn.Close()
 
 	// PSHACKパケットを送信
 	_, err = conn.Write(tcpheader.toPacket(PSH + ACK))
 	if err != nil {
-		return TCPHeader{}, fmt.Errorf("send data err : %v\n", err)
+		return TCPHeader{}, nil, fmt.Errorf("send data err : %v\n", err)
 	}
 
 	fmt.Println("Send PSHACK packet")
@@ -265,18 +266,18 @@ func (tcpheader *TCPHeader) Write(data []byte) (TCPHeader, error) {
 	// PSHACKを受けて送ったACKを受ける
 	result := <-chHeader
 	if result.err != nil {
-		return TCPHeader{}, err
+		return TCPHeader{}, nil, err
 	}
 
 	fmt.Printf("ACK State header is %+v\n", result.tcpHeader)
 
-	return result.tcpHeader, nil
+	return result.tcpHeader, result.tcpData, nil
 }
 
 func (tcpheader *TCPHeader) Close() error {
 	chHeader := make(chan TcpState)
 	go func() {
-		ListenPacket(ipv4ByteToString(tcpheader.TCPDummyHeader.SourceIP),
+		Listen(ipv4ByteToString(tcpheader.TCPDummyHeader.SourceIP),
 			int(byteToUint16(tcpheader.SourcePort)), chHeader)
 	}()
 
@@ -301,16 +302,4 @@ func (tcpheader *TCPHeader) Close() error {
 	close(chHeader)
 
 	return nil
-}
-
-func (tcpheader *TCPHeader) Wait() {
-	chHeader := make(chan TcpState)
-	go func() {
-		ListenPacket(ipv4ByteToString(tcpheader.TCPDummyHeader.SourceIP),
-			int(byteToUint16(tcpheader.SourcePort)), chHeader)
-	}()
-
-	result := <-chHeader
-
-	fmt.Printf("wait result is %+v\n", result.tcpHeader)
 }
