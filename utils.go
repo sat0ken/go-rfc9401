@@ -16,14 +16,14 @@ func uint16ToByte(i uint16) []byte {
 	return b
 }
 
-func byteToUint16(b []byte) uint16 {
-	return binary.BigEndian.Uint16(b)
-}
-
 func uint32ToByte(i uint32) []byte {
 	b := make([]byte, 4)
 	binary.BigEndian.PutUint32(b, i)
 	return b
+}
+
+func byteToUint16(b []byte) uint16 {
+	return binary.BigEndian.Uint16(b)
 }
 
 func byteToUint32(b []byte) uint32 {
@@ -62,16 +62,6 @@ func ipv4ToByte(ipv4 string) []byte {
 		b.Write([]byte{byte(i)})
 	}
 	return b.Bytes()
-}
-
-func ipv4To4Byte(ipv4 string) [4]byte {
-	var b [4]byte
-	str := strings.Split(ipv4, ".")
-	for index, v := range str {
-		i, _ := strconv.Atoi(v)
-		b[index] = byte(i)
-	}
-	return b
 }
 
 func ipv4ByteToString(ipv4 []byte) string {

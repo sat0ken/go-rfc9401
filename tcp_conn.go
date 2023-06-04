@@ -68,7 +68,7 @@ func Dial(clientAddr string, serverAddr string, serverpPort int) (TCPHeader, err
 		WindowSize:    uint16ToByte(65495),
 		Checksum:      uint16ToByte(0),
 		UrgentPointer: uint16ToByte(0),
-		Options:       TCPOptions,
+		// Options:       TCPOptions,
 	}
 
 	// SYNパケットを送る
@@ -153,7 +153,7 @@ func handleTCPConnection(pconn net.PacketConn, tcpHeader TCPHeader, client net.A
 		// ACKをいったん保存
 		tmpack := tcpHeader.AckNumber
 		// ACKにSEQを
-		tcpHeader.AckNumber = tcpHeader.SeqNumber
+		tcpHeader.AckNumber = addAckNumber(tcpHeader.SeqNumber, 1)
 		// SEQにACKを
 		tcpHeader.SeqNumber = tmpack
 		tcpHeader.DataOffset = 20

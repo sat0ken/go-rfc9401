@@ -41,19 +41,14 @@ const (
 	CWR = 0x80
 )
 
-var SYNPacket = []byte{
-	0x93, 0x6a, 0x46, 0xa0, 0x0c, 0x81, 0xbc, 0x1c,
-	0x00, 0x00, 0x00, 0x00, 0xa0, 0x02, 0xff, 0xd7,
-	0xca, 0x69, 0x00, 0x00, 0x02, 0x04, 0xff, 0xd7,
-	0x04, 0x02, 0x08, 0x0a, 0x31, 0x07, 0xb1, 0xe8,
-	0x00, 0x00, 0x00, 0x00, 0x01, 0x03, 0x03, 0x07,
-}
-
-var TCPOptions = []byte{
-	0x02, 0x04, 0xff, 0xd7, 0x04, 0x02, 0x08, 0x0a,
-	0x31, 0x07, 0xb1, 0xe8, 0x00, 0x00, 0x00, 0x00,
-	0x01, 0x03, 0x03, 0x07,
-}
+const (
+	TCP_Option_No_Operation         = 1
+	TCP_OPTION_Maximum_Segment_Size = 2
+	TCP_Option_Window_Scale         = 3
+	TCP_Option_SACK_Permitted       = 4
+	TCP_Option_SACK                 = 5
+	TCP_Option_Timestamps           = 8
+)
 
 type TCPHeader struct {
 	TCPDummyHeader tcpDummyHeader
@@ -68,8 +63,39 @@ type TCPHeader struct {
 	WindowSize     []byte
 	Checksum       []byte
 	UrgentPointer  []byte
-	Options        []byte
+	Options        tcpOptions
 	Data           []byte
+}
+
+type tcpOptions struct {
+	// No Operation
+	nop struct {
+		kind uint8
+	}
+	// Maximum Segment Size
+	mss struct {
+		kind   uint8
+		length uint8
+		value  uint16
+	}
+	// Window Scale
+	windowscale struct {
+		kind       uint8
+		length     uint8
+		shiftcount uint8
+	}
+	// SACK Permitted
+	sackpermitted struct {
+		kind   uint8
+		length uint8
+	}
+	// Timestamps
+	timestamp struct {
+		kind   uint8
+		length uint8
+		value  uint32
+		replay uint32
+	}
 }
 
 type tcpDummyHeader struct {
@@ -118,13 +144,56 @@ func parseTCPHeader(packet []byte, clientAddr string, serverAddr string) (tcpHea
 	tcpHeader.WindowSize = packet[14:16]
 	tcpHeader.Checksum = packet[16:18]
 	tcpHeader.UrgentPointer = packet[18:20]
-	tcpHeader.Options = packet[20:tcpHeader.DataOffset]
+	tcpHeader.Options = parseTCPOptions(packet[20:tcpHeader.DataOffset])
 	// TCPデータがあればセット
 	if int(tcpHeader.DataOffset) < len(packet) {
 		tcpHeader.Data = packet[tcpHeader.DataOffset:]
 	}
 
 	return tcpHeader
+}
+
+func parseTCPOptions(packetOpts []byte) tcpOptions {
+	var tcpopt tcpOptions
+
+	for {
+		if len(packetOpts) == 0 {
+			break
+		} else {
+			switch packetOpts[0] {
+			case TCP_OPTION_Maximum_Segment_Size:
+				tcpopt.mss.kind = packetOpts[0]
+				tcpopt.mss.length = packetOpts[1]
+				tcpopt.mss.value = byteToUint16(packetOpts[2:4])
+				packetOpts = packetOpts[4:]
+			case TCP_Option_SACK_Permitted:
+				tcpopt.sackpermitted.kind = packetOpts[0]
+				tcpopt.sackpermitted.length = packetOpts[1]
+				packetOpts = packetOpts[2:]
+			case TCP_Option_Timestamps:
+				tcpopt.timestamp.kind = packetOpts[0]
+				tcpopt.timestamp.length = packetOpts[1]
+				tcpopt.timestamp.value = byteToUint32(packetOpts[2:6])
+				tcpopt.timestamp.replay = byteToUint32(packetOpts[6:10])
+				packetOpts = packetOpts[10:]
+			case TCP_Option_No_Operation:
+				tcpopt.nop.kind = packetOpts[0]
+				packetOpts = packetOpts[1:]
+			case TCP_Option_Window_Scale:
+				tcpopt.windowscale.kind = packetOpts[0]
+				tcpopt.windowscale.length = packetOpts[1]
+				tcpopt.windowscale.shiftcount = packetOpts[2]
+				packetOpts = packetOpts[3:]
+			}
+		}
+	}
+
+	return tcpopt
+}
+
+func (options *tcpOptions) toPacket() (opPacket []byte) {
+	var b bytes.Buffer
+	return b.Bytes()
 }
 
 func (ctrlFlags *tcpCtrlFlags) getState() int {
@@ -192,8 +261,8 @@ func (tcpheader *TCPHeader) toPacket() (packet []byte) {
 	tcpheader.Checksum = []byte{0x00, 0x00}
 	b.Write(tcpheader.Checksum)
 	b.Write(tcpheader.UrgentPointer)
-	if tcpheader.Options != nil {
-		b.Write(tcpheader.Options)
+	if tcpheader.Options.toPacket() != nil {
+		b.Write(tcpheader.Options.toPacket())
 	}
 	packet = b.Bytes()
 	// checksumを計算
@@ -252,7 +321,7 @@ func (tcpheader *TCPHeader) Write(data []byte) (TCPHeader, error) {
 
 	tcpheader.TCPCtrlFlags.PSH = 1
 	// Optionめんどいから消す
-	tcpheader.Options = nil
+	// tcpheader.Options = nil
 	tcpheader.DataOffset = 20
 	// TCPデータをセット
 	tcpheader.Data = data
