@@ -12,13 +12,14 @@ const NETWORK_STR = "ip:tcp"
 
 type TcpState struct {
 	tcpHeader TCPHeader
+	tcpData   []byte
 	err       error
 }
 
-func ListenPacket(listenAddr string, port int, chHeader chan TcpState) error {
+func Listen(listenAddr string, port int, chHeader chan TcpState) error {
 	conn, err := net.ListenPacket(NETWORK_STR, listenAddr)
 	if err != nil {
-		log.Fatalf("ListenPacket is err : %v", err)
+		log.Fatalf("Listen is err : %v", err)
 	}
 	defer conn.Close()
 
@@ -43,7 +44,7 @@ func Dial(clientAddr string, serverAddr string, serverpPort int) (TCPHeader, err
 
 	chHeader := make(chan TcpState)
 	go func() {
-		ListenPacket(serverAddr, clientPort, chHeader)
+		Listen(serverAddr, clientPort, chHeader)
 	}()
 	conn, err := net.Dial(NETWORK_STR, serverAddr)
 	if err != nil {
@@ -94,14 +95,15 @@ func handleTCPConnection(pconn net.PacketConn, tcpHeader TCPHeader, client net.A
 		tcpHeader.DestPort = tcpHeader.SourcePort
 		tcpHeader.SourcePort = uint16ToByte(uint16(port))
 		tcpHeader.AckNumber = addAckNumber(tcpHeader.SeqNumber, 1)
-		tcpHeader.SeqNumber = []byte{0x00, 0x00, 0x00, 0x00}
+		tcpHeader.SeqNumber = uint32ToByte(2142718385)
+		tcpHeader.DataOffset = 20
 		tcpHeader.TCPCtrlFlags.ACK = 1
 		// SYNACKパケットを送信
 		_, err := pconn.WriteTo(tcpHeader.toPacket(SYN+ACK), client)
 		if err != nil {
 			log.Fatal(" Write SYNACK is err : %v\n", err)
 		}
-		fmt.Println("Send SYNACK packet")
+		fmt.Println("Send SYNACK packet, wait ACK Packet...")
 	case SYN + ACK:
 		fmt.Println("Recv SYNACK packet")
 		tcpHeader.DestPort = tcpHeader.SourcePort
@@ -123,8 +125,13 @@ func handleTCPConnection(pconn net.PacketConn, tcpHeader TCPHeader, client net.A
 		// ACKまできたのでchannelで一度返す
 		ch <- TcpState{tcpHeader: tcpHeader, err: nil}
 	case PSH + ACK:
-		// Todo: ACKを返す
 		fmt.Println("Recv PSHACK packet")
+		var tcpdata []byte
+		var isexistTCPData bool
+		if tcpHeader.Data != nil {
+			isexistTCPData = true
+			tcpdata = tcpHeader.Data
+		}
 		tcpHeader.DestPort = tcpHeader.SourcePort
 		tcpHeader.SourcePort = uint16ToByte(uint16(port))
 		// ACKをいったん保存
@@ -141,10 +148,25 @@ func handleTCPConnection(pconn net.PacketConn, tcpHeader TCPHeader, client net.A
 			ch <- TcpState{tcpHeader: TCPHeader{}, err: fmt.Errorf("Send SYNACK err: %v", err)}
 		}
 		fmt.Println("Send ACK to PSHACK Packet")
-		// ACKまできたのでchannelで一度返す
-		ch <- TcpState{tcpHeader: tcpHeader, err: nil}
+		// TCPのデータがなければACKを送ったのでchannelで返す
+		if !isexistTCPData {
+			ch <- TcpState{tcpHeader: tcpHeader, err: nil}
+		} else {
+			if port == int(byteToUint16(tcpHeader.SourcePort)) && port == 18000 {
+				fmt.Println("Send PSHACK Packet From server")
+				// サーバならHTTPレスポンスを返す
+				tcpHeader.DTH = 1
+				resultHeader, _, err := tcpHeader.Write(CreateHttpResp("hello\n"))
+				if err != nil {
+					ch <- TcpState{tcpHeader: TCPHeader{}, err: err}
+				}
+				ch <- TcpState{tcpHeader: resultHeader, err: nil}
+			} else {
+				ch <- TcpState{tcpHeader: tcpHeader, tcpData: tcpdata, err: nil}
+			}
+
+		}
 	case FIN + ACK:
-		// Todo: ACKを返す
 		fmt.Println("Recv FINACK packet")
 		tcpHeader.DestPort = tcpHeader.SourcePort
 		tcpHeader.SourcePort = uint16ToByte(uint16(port))
