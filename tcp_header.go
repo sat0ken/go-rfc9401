@@ -41,14 +41,8 @@ const (
 	CWR = 0x80
 )
 
-var TCPOptions = []byte{
-	0x02, 0x04, 0xff, 0xd7, 0x04, 0x02, 0x08, 0x0a,
-	0x9c, 0xb7, 0x7e, 0xe1, 0x00, 0x00, 0x00, 0x00,
-	0x01, 0x03, 0x03, 0x07,
-}
-
 type TCPHeader struct {
-	TCPDummyHeader TCPDummyHeader
+	TCPDummyHeader tcpDummyHeader
 	SourcePort     []byte
 	DestPort       []byte
 	SeqNumber      []byte
@@ -56,22 +50,22 @@ type TCPHeader struct {
 	DataOffset     uint8
 	DTH            uint8
 	Reserved       uint8
-	TCPCtrlFlags   TCPCtrlFlags
+	TCPCtrlFlags   tcpCtrlFlags
 	WindowSize     []byte
 	Checksum       []byte
 	UrgentPointer  []byte
-	Options        []byte
+	Options        tcpOptions
 	Data           []byte
 }
 
-type TCPDummyHeader struct {
+type tcpDummyHeader struct {
 	SourceIP []byte
 	DestIP   []byte
 	Protocol []byte
 	Length   []byte
 }
 
-type TCPCtrlFlags struct {
+type tcpCtrlFlags struct {
 	CWR uint8
 	ECR uint8
 	URG uint8
@@ -82,7 +76,7 @@ type TCPCtrlFlags struct {
 	FIN uint8
 }
 
-func (ctrlFlags *TCPCtrlFlags) ParseTCPCtrlFlags(packet uint8) {
+func (ctrlFlags *tcpCtrlFlags) parseTCPCtrlFlags(packet uint8) {
 	ctrlFlags.CWR = packet & 0x80 >> 7
 	ctrlFlags.ECR = packet & 0x40 >> 6
 	ctrlFlags.URG = packet & 0x20 >> 5
@@ -93,10 +87,10 @@ func (ctrlFlags *TCPCtrlFlags) ParseTCPCtrlFlags(packet uint8) {
 	ctrlFlags.FIN = packet & 0x01
 }
 
-func ParseHeader(packet []byte, clientAddr string, serverAddr string) (tcpHeader TCPHeader) {
+func parseTCPHeader(packet []byte, clientAddr string, serverAddr string) (tcpHeader TCPHeader) {
 	// SourceのIPアドレスとDestinationのIPアドレスをダミーヘッダにセット
-	tcpHeader.TCPDummyHeader.SourceIP = ipv4ToByte(clientAddr)
-	tcpHeader.TCPDummyHeader.DestIP = ipv4ToByte(serverAddr)
+	tcpHeader.TCPDummyHeader.SourceIP = ipv4ToByte(serverAddr)
+	tcpHeader.TCPDummyHeader.DestIP = ipv4ToByte(clientAddr)
 
 	// TCPヘッダをセット
 	tcpHeader.SourcePort = packet[0:2]
@@ -106,11 +100,11 @@ func ParseHeader(packet []byte, clientAddr string, serverAddr string) (tcpHeader
 	tcpHeader.DataOffset = packet[12] >> 2
 	tcpHeader.DTH = packet[12] & 0x08
 	tcpHeader.Reserved = packet[12] & 0x07
-	tcpHeader.TCPCtrlFlags.ParseTCPCtrlFlags(packet[13])
+	tcpHeader.TCPCtrlFlags.parseTCPCtrlFlags(packet[13])
 	tcpHeader.WindowSize = packet[14:16]
 	tcpHeader.Checksum = packet[16:18]
 	tcpHeader.UrgentPointer = packet[18:20]
-	tcpHeader.Options = packet[20:tcpHeader.DataOffset]
+	tcpHeader.Options = parseTCPOptions(packet[20:tcpHeader.DataOffset])
 	// TCPデータがあればセット
 	if int(tcpHeader.DataOffset) < len(packet) {
 		tcpHeader.Data = packet[tcpHeader.DataOffset:]
@@ -119,7 +113,7 @@ func ParseHeader(packet []byte, clientAddr string, serverAddr string) (tcpHeader
 	return tcpHeader
 }
 
-func (ctrlFlags *TCPCtrlFlags) getState() int {
+func (ctrlFlags *tcpCtrlFlags) getState() int {
 	if ctrlFlags.SYN == 1 && ctrlFlags.ACK == 0 {
 		return SYN
 	} else if ctrlFlags.SYN == 1 && ctrlFlags.ACK == 1 {
@@ -134,7 +128,7 @@ func (ctrlFlags *TCPCtrlFlags) getState() int {
 	return 0
 }
 
-func (ctrlFlags *TCPCtrlFlags) ToPacket() (flags uint8) {
+func (ctrlFlags *tcpCtrlFlags) toPacket() (flags uint8) {
 
 	if ctrlFlags.CWR == 1 {
 		flags += CWR
@@ -164,7 +158,7 @@ func (ctrlFlags *TCPCtrlFlags) ToPacket() (flags uint8) {
 	return flags
 }
 
-func (tcpheader *TCPHeader) ToPacket() (packet []byte) {
+func (tcpheader *TCPHeader) toPacket(optType int) (packet []byte) {
 	var b bytes.Buffer
 
 	b.Write(tcpheader.SourcePort)
@@ -177,24 +171,31 @@ func (tcpheader *TCPHeader) ToPacket() (packet []byte) {
 	if tcpheader.DTH == 1 && tcpheader.Reserved == 0 {
 		offset += 0x08
 	}
+
 	b.Write([]byte{offset})
-	b.Write([]byte{tcpheader.TCPCtrlFlags.ToPacket()})
+	b.Write([]byte{tcpheader.TCPCtrlFlags.toPacket()})
 	b.Write(tcpheader.WindowSize)
 	// checksumを計算するために0にする
 	tcpheader.Checksum = []byte{0x00, 0x00}
 	b.Write(tcpheader.Checksum)
 	b.Write(tcpheader.UrgentPointer)
-	if tcpheader.Options != nil {
-		b.Write(tcpheader.Options)
-	}
+
+	// TCPオプションはセットしない
+	//switch optType {
+	//case SYN:
+	//	b.Write(tcpheader.Options.optSYN())
+	//case SYN + ACK, ACK, FIN + ACK, PSH + ACK:
+	//	b.Write(tcpheader.Options.optACK(tcpheader.Options.timestamp.value))
+	//}
+
 	packet = b.Bytes()
 	// checksumを計算
 	var calc []byte
 	// TCPダミーヘッダをセット
 	if tcpheader.Data == nil {
-		calc = tcpheader.TCPDummyHeader.ToPacket(len(packet))
+		calc = tcpheader.TCPDummyHeader.toPacket(len(packet))
 	} else {
-		calc = tcpheader.TCPDummyHeader.ToPacket(len(tcpheader.Data) + len(packet))
+		calc = tcpheader.TCPDummyHeader.toPacket(len(tcpheader.Data) + len(packet))
 	}
 	// TCPヘッダを追加
 	calc = append(calc, packet...)
@@ -224,7 +225,7 @@ func (tcpheader *TCPHeader) ToPacket() (packet []byte) {
 	return packet
 }
 
-func (dummyHeader *TCPDummyHeader) ToPacket(length int) []byte {
+func (dummyHeader *tcpDummyHeader) toPacket(length int) []byte {
 	var b bytes.Buffer
 	b.Write(dummyHeader.SourceIP)
 	b.Write(dummyHeader.DestIP)
@@ -235,32 +236,70 @@ func (dummyHeader *TCPDummyHeader) ToPacket(length int) []byte {
 }
 
 // PSHACKでデータを送る
-func (tcpHeader *TCPHeader) Write(data []byte) error {
-	chHeader := make(chan TCPHeader)
+func (tcpheader *TCPHeader) Write(data []byte) (header TCPHeader, respdata []byte, err error) {
+	chHeader := make(chan TcpState)
 	go func() {
-		ListenPacket(ipv4ByteToString(tcpHeader.TCPDummyHeader.SourceIP), clientPort, chHeader)
+		Listen(ipv4ByteToString(tcpheader.TCPDummyHeader.SourceIP),
+			int(byteToUint16(tcpheader.SourcePort)), chHeader)
 	}()
 
-	tcpHeader.TCPCtrlFlags.PSH = 1
-	// Optionめんどいから消す
-	tcpHeader.Options = nil
-	tcpHeader.DataOffset = 20
-	// TCPデータをセット
-	tcpHeader.Data = data
+	tcpheader.TCPCtrlFlags.PSH = 1
 
-	conn, err := net.Dial("ip:tcp", ipv4ByteToString(tcpHeader.TCPDummyHeader.DestIP))
+	// tcpheader.DTH = 1
+	// TCPデータをセット
+	tcpheader.Data = data
+
+	conn, err := net.Dial(NETWORK_STR, ipv4ByteToString(tcpheader.TCPDummyHeader.DestIP))
 	if err != nil {
-		return err
+		return TCPHeader{}, nil, fmt.Errorf("connection err : %v", err)
 	}
-	_, err = conn.Write(tcpHeader.ToPacket())
+	defer conn.Close()
+
+	// PSHACKパケットを送信
+	_, err = conn.Write(tcpheader.toPacket(PSH + ACK))
 	if err != nil {
-		return err
+		return TCPHeader{}, nil, fmt.Errorf("send data err : %v\n", err)
 	}
+
 	fmt.Println("Send PSHACK packet")
 
 	// PSHACKを受けて送ったACKを受ける
-	pshack := <-chHeader
-	fmt.Printf("PSHACK is %+v\n", pshack)
+	result := <-chHeader
+	if result.err != nil {
+		return TCPHeader{}, nil, err
+	}
+
+	fmt.Printf("ACK State header is %+v\n", result.tcpHeader)
+
+	return result.tcpHeader, result.tcpData, nil
+}
+
+func (tcpheader *TCPHeader) Close() error {
+	chHeader := make(chan TcpState)
+	go func() {
+		Listen(ipv4ByteToString(tcpheader.TCPDummyHeader.SourceIP),
+			int(byteToUint16(tcpheader.SourcePort)), chHeader)
+	}()
+
+	tcpheader.TCPCtrlFlags.FIN = 1
+	conn, err := net.Dial(NETWORK_STR, ipv4ByteToString(tcpheader.TCPDummyHeader.DestIP))
+	if err != nil {
+		return fmt.Errorf("connection err : %v", err)
+	}
+	defer conn.Close()
+
+	// FINACKパケットを送信
+	_, err = conn.Write(tcpheader.toPacket(FIN + ACK))
+	if err != nil {
+		return fmt.Errorf("send fin err : %v\n", err)
+	}
+	fmt.Println("Send FINACK packet")
+	// channelで結果を受ける
+	result := <-chHeader
+	if result.err != nil {
+		return result.err
+	}
+	close(chHeader)
 
 	return nil
 }

@@ -16,14 +16,14 @@ func uint16ToByte(i uint16) []byte {
 	return b
 }
 
-func byteToUint16(b []byte) uint16 {
-	return binary.BigEndian.Uint16(b)
-}
-
 func uint32ToByte(i uint32) []byte {
 	b := make([]byte, 4)
 	binary.BigEndian.PutUint32(b, i)
 	return b
+}
+
+func byteToUint16(b []byte) uint16 {
+	return binary.BigEndian.Uint16(b)
 }
 
 func byteToUint32(b []byte) uint32 {
@@ -70,7 +70,7 @@ func ipv4ByteToString(ipv4 []byte) string {
 
 func getRandomClientPort() int {
 	rand.Seed(time.Now().UnixNano())
-	min := 50000
+	min := 30000
 	max := 60000
 	return rand.Intn(max-min+1) + min
 }
