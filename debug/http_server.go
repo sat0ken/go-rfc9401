@@ -2,10 +2,19 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 )
 
 func hello(w http.ResponseWriter, req *http.Request) {
+	reqb, err := io.ReadAll(req.Body)
+	if err != nil {
+		log.Println(err)
+	}
+	defer req.Body.Close()
+	
+	fmt.Println(string(reqb))
 	fmt.Fprintf(w, "hello\n")
 }
 
