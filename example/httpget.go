@@ -2,15 +2,16 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"rfc9401"
 )
 
 func main() {
 	localhost := "127.0.0.1"
-	resp, err := rfc9401.HttpGet(localhost, localhost, 18000)
+	postdata := "この戦争が終わったらこいつと結婚するんだ"
+
+	resp, err := rfc9401.HttpPost(localhost, localhost, 18000, postdata)
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println(err)
 	}
 	fmt.Println(resp)
 }
