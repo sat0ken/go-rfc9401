@@ -28,6 +28,19 @@ func CreateHttpGet(server string, port int) []byte {
 	return []byte(reqstr)
 }
 
+func CreateHttpPost(server string, port int, data string) []byte {
+
+	reqstr := "POST / HTTP/1.1\n"
+	reqstr += fmt.Sprintf("Host: %s:%d\n", server, port)
+	reqstr += "User-Agent: curl/7.81.0\n"
+	reqstr += "Accept: */*\n"
+	reqstr += fmt.Sprintf("Content-Length: %d\n", len(data))
+	reqstr += "Content-Type: application/x-www-form-urlencoded\n\n"
+	reqstr += data
+
+	return []byte(reqstr)
+}
+
 func CreateHttpResp(data string) []byte {
 
 	respbody := "HTTP/1.1 200 OK\r\n"
@@ -77,10 +90,32 @@ func HttpGet(client, server string, port int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if conn.DTH == 1 {
-		err = fmt.Errorf("TCPセッションに死亡フラグが立ちました")
+	//fmt.Println("send http is fin, start recv http response")
+	//conn, data, err = conn.Read()
+	//if conn.DTH == 1 {
+	//	err = fmt.Errorf("TCPセッションに死亡フラグが立ちました")
+	//}
+	// conn.Close()
+
+	return string(data), err
+}
+
+func HttpPost(client, server string, port int, postdata string) (string, error) {
+
+	conn, err := Dial(client, server, port)
+	if err != nil {
+		return "", err
 	}
 
+	conn, data, err := conn.Write(CreateHttpPost(server, port, postdata))
+	if err != nil {
+		return "", err
+	}
+	//fmt.Println("send http is fin, start recv http response")
+	//conn, data, err = conn.Read()
+	//if conn.DTH == 1 {
+	//	err = fmt.Errorf("TCPセッションに死亡フラグが立ちました")
+	//}
 	// conn.Close()
 
 	return string(data), err
@@ -98,4 +133,5 @@ func ListenAndServeHTTP(listenAddr string, port int) error {
 		}
 		fmt.Printf("ListenAndServeHTTP result header is %+v\n", result.tcpHeader)
 	}
+
 }
