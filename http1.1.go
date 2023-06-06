@@ -22,7 +22,6 @@ func CreateHttpGet(server string, port int) []byte {
 	reqstr := "GET / HTTP/1.1\n"
 	reqstr += fmt.Sprintf("Host: %s:%d\n", server, port)
 	reqstr += "User-Agent: curl/7.81.0\n"
-	// reqstr += "Connection: close\n"
 	reqstr += "Accept: */*\n\n"
 
 	return []byte(reqstr)
@@ -86,16 +85,11 @@ func HttpGet(client, server string, port int) (string, error) {
 		return "", err
 	}
 
-	conn, data, err := conn.Write(CreateHttpGet(server, port))
+	conn, data, err := conn.Write(CreateHttpGet(server, port), true)
 	if err != nil {
 		return "", err
 	}
-	//fmt.Println("send http is fin, start recv http response")
-	//conn, data, err = conn.Read()
-	//if conn.DTH == 1 {
-	//	err = fmt.Errorf("TCPセッションに死亡フラグが立ちました")
-	//}
-	// conn.Close()
+	defer conn.Close()
 
 	return string(data), err
 }
@@ -107,16 +101,11 @@ func HttpPost(client, server string, port int, postdata string) (string, error) 
 		return "", err
 	}
 
-	conn, data, err := conn.Write(CreateHttpPost(server, port, postdata))
+	conn, data, err := conn.Write(CreateHttpPost(server, port, postdata), true)
 	if err != nil {
 		return "", err
 	}
-	//fmt.Println("send http is fin, start recv http response")
-	//conn, data, err = conn.Read()
-	//if conn.DTH == 1 {
-	//	err = fmt.Errorf("TCPセッションに死亡フラグが立ちました")
-	//}
-	// conn.Close()
+	defer conn.Close()
 
 	return string(data), err
 }

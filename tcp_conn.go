@@ -157,7 +157,7 @@ func handleTCPConnection(pconn net.PacketConn, tcpHeader TCPHeader, client net.A
 				fmt.Println("Send PSHACK Packet From server")
 				// サーバならHTTPレスポンスを返す
 				tcpHeader.DTH = 1
-				resultHeader, _, err := tcpHeader.Write(CreateHttpResp("hello\n"))
+				resultHeader, _, err := tcpHeader.Write(CreateHttpResp("もう何も怖くない\n"), true)
 				if err != nil {
 					ch <- TcpState{tcpHeader: TCPHeader{}, err: err}
 				}

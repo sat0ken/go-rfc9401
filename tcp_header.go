@@ -228,7 +228,7 @@ func (dummyHeader *tcpDummyHeader) toPacket(length int) []byte {
 }
 
 // PSHACKでデータを送る
-func (tcpheader *TCPHeader) Write(data []byte) (header TCPHeader, respdata []byte, err error) {
+func (tcpheader *TCPHeader) Write(data []byte, DTH bool) (header TCPHeader, respdata []byte, err error) {
 	chHeader := make(chan TcpState)
 	go func() {
 		Listen(ipv4ByteToString(tcpheader.TCPDummyHeader.SourceIP),
@@ -237,7 +237,10 @@ func (tcpheader *TCPHeader) Write(data []byte) (header TCPHeader, respdata []byt
 
 	tcpheader.TCPCtrlFlags.PSH = 1
 
-	// tcpheader.DTH = 1
+	// 死亡フラグが立っていたら1をセット
+	if DTH {
+		tcpheader.DTH = 1
+	}
 	// TCPデータをセット
 	tcpheader.Data = data
 
@@ -266,6 +269,7 @@ func (tcpheader *TCPHeader) Write(data []byte) (header TCPHeader, respdata []byt
 	return result.tcpHeader, result.tcpData, nil
 }
 
+// FINでTCP接続を終了する
 func (tcpheader *TCPHeader) Close() error {
 	chHeader := make(chan TcpState)
 	go func() {
